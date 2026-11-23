@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="受付サポート">
+<title>受付サポート</title>
+<style>
+:root{--bg:#f2f2f7;--card:#fff;--tx:#111;--sub:#6b6b73;--ac:#0a84ff;--ng:#ff3b30;--ok:#30b050}
+@media(prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--tx:#f2f2f7;--sub:#9a9aa2}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,"Hiragino Sans",sans-serif;padding:env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 70px)}
+body.flash{animation:fl .4s infinite alternate}
+@keyframes fl{from{background:var(--bg)}to{background:#ff3b30}}
+h2{font-size:15px;margin:0 0 8px;color:var(--sub)}
+.card{background:var(--card);border-radius:14px;padding:14px;margin:12px 0}
+.clock{font-size:42px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:1px}
+.ms{font-size:26px;color:var(--sub)}
+.small{font-size:12px;color:var(--sub);text-align:center;margin-top:6px}
+button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--ac);color:#fff}
+button.gray{background:#8e8e9322;color:var(--tx)}
+button.red{background:var(--ng)}
+input{font:inherit;width:100%;padding:10px;border-radius:10px;border:1px solid #8e8e9355;background:transparent;color:var(--tx)}
+.row{display:flex;gap:8px;margin-top:8px}
+.big{font-size:40px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);padding:6px 6px calc(env(safe-area-inset-bottom) + 6px);border-top:1px solid #8e8e9333}
+.tabs button{flex:1;background:none;color:var(--sub);border-radius:8px}
+.tabs button.on{color:var(--ac);font-weight:700}
+.page{display:none}.page.on{display:block}
+.item{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #8e8e9322}
+.item:last-child{border:0}
+.item .lb{font-size:12px;color:var(--sub)}
+.item .vl{font-size:17px;word-break:break-all}
+.item .cp{flex:1;text-align:left;background:none;color:var(--tx);padding:0}
+.item .rm{background:none;color:var(--ng);padding:6px}
+#toast{position:fixed;left:50%;top:60px;transform:translateX(-50%);background:#000c;color:#fff;padding:8px 16px;border-radius:20px;opacity:0;transition:.2s;pointer-events:none;z-index:9}
+#toast.on{opacity:1}
+.warn{font-size:12px;color:var(--sub);margin-top:8px}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<!-- 時計・カウントダウン -->
+<div id="p1" class="page on">
+  <div class="card">
+    <h2>正確な現在時刻（補正済み）</h2>
+    <div class="clock"><span id="hm">--:--:--</span><span class="ms" id="ms">.000</span></div>
+    <div class="small" id="syncInfo">未補正（端末の時計）</div>
+    <div class="row"><button style="flex:1" id="syncBtn">時刻を補正する</button></div>
+    <div class="row"><button class="gray" style="flex:1" id="pipBtn">🪟 小窓で表示（他のサイトの上に浮かせる）</button></div>
+    <video id="pv" playsinline muted style="position:absolute;width:2px;height:2px;opacity:.01;pointer-events:none"></video>
+  </div>
+
+  <div class="card">
+    <h2>受付開始までカウントダウン</h2>
+    <input type="datetime-local" id="target" step="1">
+    <div class="row">
+      <button style="flex:1" id="startBtn">開始</button>
+      <button class="gray" style="flex:1" id="stopBtn">停止</button>
+    </div>
+    <div class="big" id="cd" style="margin-top:12px">--:--:--</div>
+    <div class="small" id="cdInfo">日時を入れて「開始」を押してください</div>
+    <div class="warn">・開始を押すと、60秒前／10秒前／5〜1秒前に音が鳴り、0秒で画面が点滅します。<br>・iPhoneは消音スイッチがオンだと音が出ません。<br>・開始中は画面が消えないようにしています（iOS 16.4以降）。</div>
+  </div>
+</div>
+
+<!-- 入力メモ -->
+<div id="p2" class="page">
+  <div class="card">
+    <h2>タップでコピー</h2>
+    <div id="list"></div>
+  </div>
+  <div class="card">
+    <h2>項目を追加</h2>
+    <input id="nl" placeholder="項目名（例：会員番号）">
+    <div class="row"><input id="nv" placeholder="内容"></div>
+    <div class="row"><button style="flex:1" id="addBtn">追加</button></div>
+    <div class="warn">※クレジットカード番号やパスワードなど、重要な情報は保存しないでください。データはこのiPhoneのSafari内にだけ保存されます。</div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="on" data-p="p1">⏱ 時計</button>
+  <button data-p="p2">📋 入力メモ</button>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const pad=(n,l=2)=>String(n).padStart(l,"0");
+let offset=0;
+const now=()=>Date.now()+offset;
+function toast(t){const e=$("toast");e.textContent=t;e.classList.add("on");setTimeout(()=>e.classList.remove("on"),1400)}
+
+/* タブ */
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));
+  document.querySelectorAll(".page").forEach(p=>p.classList.toggle("on",p.id===b.dataset.p));
+});
+
+/* 時刻補正 */
+async function syncApi(){
+  let best=null;
+  for(let i=0;i<3;i++){
+    const t0=Date.now();
+    const r=await fetch("https://worldtimeapi.org/api/timezone/Etc/UTC?_="+t0,{cache:"no-store"});
+    const j=await r.json();const t1=Date.now();
+    const srv=new Date(j.datetime).getTime();
+    const rtt=t1-t0,off=srv-(t0+t1)/2;
+    if(!best||rtt<best.rtt)best={rtt,off};
+  }
+  return best;
+}
+async function syncHeader(){ // 秒が切り替わる瞬間を探す方式
+  let prev=null,best=null;
+  for(let i=0;i<40;i++){
+    const t0=Date.now();
+    const r=await fetch(location.href.split("#")[0]+"?_="+t0,{method:"HEAD",cache:"no-store"});
+    const t1=Date.now();
+    const d=new Date(r.headers.get("Date")).getTime();
+    if(prev!==null&&d!==prev){best={rtt:t1-t0,off:d-(t0+t1)/2};break}
+    prev=d;
+    await new Promise(s=>setTimeout(s,100));
+  }
+  if(!best)throw new Error("sync failed");
+  return best;
+}
+async function sync(){
+  $("syncBtn").disabled=true;$("syncInfo").textContent="補正中…";
+  try{
+    let r;
+    try{r=await syncApi()}catch(e){r=await syncHeader()}
+    offset=r.off;
+    $("syncInfo").textContent="補正済み：端末との差 "+(offset>=0?"+":"")+Math.round(offset)+"ms（通信 "+r.rtt+"ms）";
+    toast("時刻を補正しました");
+  }catch(e){
+    $("syncInfo").textContent="補正に失敗しました。通信状況を確認してください";
+  }
+  $("syncBtn").disabled=false;
+}
+$("syncBtn").onclick=sync;
+
+/* 音 */
+let ctx=null;
+function beep(freq,dur){
+  try{
+    if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();
+    if(ctx.state==="suspended")ctx.resume();
+    const o=ctx.createOscillator(),g=ctx.createGain();
+    o.frequency.value=freq;o.connect(g);g.connect(ctx.destination);
+    g.gain.setValueAtTime(.3,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+dur);
+    o.start();o.stop(ctx.currentTime+dur);
+  }catch(e){}
+}
+
+/* カウントダウン */
+let target=null,fired={},wake=null;
+const saved=localStorage.getItem("target");
+if(saved)$("target").value=saved;
+async function lock(){try{if(navigator.wakeLock)wake=await navigator.wakeLock.request("screen")}catch(e){}}
+$("startBtn").onclick=()=>{
+  const v=$("target").value;
+  if(!v){toast("日時を入れてください");return}
+  const t=new Date(v).getTime();
+  if(t<=now()){toast("未来の日時にしてください");return}
+  target=t;fired={};localStorage.setItem("target",v);
+  document.body.classList.remove("flash");
+  beep(1,.01); // 音声の許可を取るため
+  lock();toast("開始しました");
+};
+$("stopBtn").onclick=()=>{
+  target=null;document.body.classList.remove("flash");
+  $("cd").textContent="--:--:--";$("cdInfo").textContent="停止中";
+  if(wake){wake.release();wake=null}
+};
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&target)lock()});
+
+function tick(){
+  const n=now(),d=new Date(n);
+  $("hm").textContent=pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
+  $("ms").textContent="."+pad(d.getMilliseconds(),3);
+  if(target){
+    const left=target-n;
+    if(left>0){
+      const s=Math.ceil(left/1000);
+      $("cd").textContent=pad(Math.floor(s/3600))+":"+pad(Math.floor(s%3600/60))+":"+pad(s%60);
+      $("cdInfo").textContent="目標："+new Date(target).toLocaleString("ja-JP");
+      const marks=[60,10,5,4,3,2,1];
+      for(const m of marks){
+        if(s<=m&&!fired[m]){fired[m]=1;if(s===m)beep(880,.15);break}
+      }
+    }else{
+      $("cd").textContent="00:00:00";$("cdInfo").textContent="受付開始！";
+      if(!fired[0]){fired[0]=1;beep(1320,.8);document.body.classList.add("flash");
+        setTimeout(()=>document.body.classList.remove("flash"),5000);
+        if(wake){wake.release();wake=null}}
+    }
+  }
+  requestAnimationFrame(tick);
+}
+tick();sync();
+
+/* 小窓（ピクチャ・イン・ピクチャ） */
+const cv=document.createElement("canvas");cv.width=480;cv.height=270;
+const cx=cv.getContext("2d");let pipTimer=null;
+function drawPip(){
+  const n=now(),d=new Date(n);
+  const left=target?target-n:null;
+  const end=target&&left<=0;
+  const urgent=target&&left>0&&left<=10000;
+  cx.fillStyle=end?(Math.floor(n/300)%2?"#ff3b30":"#7a0000"):"#000";
+  cx.fillRect(0,0,480,270);
+  cx.textAlign="center";cx.fillStyle="#fff";
+  cx.font="bold 58px monospace";
+  cx.fillText(pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds())+"."+pad(d.getMilliseconds(),3),240,120);
+  cx.font="bold 44px monospace";
+  if(target){
+    if(end){cx.fillStyle="#fff";cx.fillText("受付開始！",240,205)}
+    else{
+      const s=Math.ceil(left/1000);
+      cx.fillStyle=urgent?"#ffd60a":"#64d2ff";
+      cx.fillText("あと "+pad(Math.floor(s/3600))+":"+pad(Math.floor(s%3600/60))+":"+pad(s%60),240,205);
+    }
+  }else{cx.fillStyle="#8e8e93";cx.font="28px sans-serif";cx.fillText("カウントダウン未設定",240,200)}
+}
+$("pipBtn").onclick=async()=>{
+  const v=$("pv");
+  try{
+    if(!v.srcObject){v.srcObject=cv.captureStream(30);v.muted=true;v.playsInline=true}
+    drawPip();await v.play();
+    if(!pipTimer)pipTimer=setInterval(drawPip,33);
+    if(v.requestPictureInPicture)await v.requestPictureInPicture();
+    else if(v.webkitSetPresentationMode)v.webkitSetPresentationMode("picture-in-picture");
+    else throw new Error("unsupported");
+    toast("小窓を表示しました");
+  }catch(e){toast("小窓を表示できませんでした")}
+};
+
+/* 入力メモ */
+let items=[];
+try{items=JSON.parse(localStorage.getItem("items")||"null")}catch(e){}
+if(!items)items=[
+  {l:"氏名",v:""},{l:"ふりがな",v:""},{l:"郵便番号",v:""},
+  {l:"住所",v:""},{l:"電話番号",v:""},{l:"メールアドレス",v:""}
+];
+function save(){localStorage.setItem("items",JSON.stringify(items))}
+async function copy(t){
+  try{await navigator.clipboard.writeText(t)}
+  catch(e){
+    const a=document.createElement("textarea");a.value=t;document.body.appendChild(a);
+    a.select();document.execCommand("copy");a.remove();
+  }
+}
+function render(){
+  const box=$("list");box.textContent="";
+  items.forEach((it,i)=>{
+    const row=document.createElement("div");row.className="item";
+    const b=document.createElement("button");b.className="cp";
+    const l=document.createElement("div");l.className="lb";l.textContent=it.l;
+    const v=document.createElement("div");v.className="vl";v.textContent=it.v||"（タップして内容を入力）";
+    b.append(l,v);
+    b.onclick=async()=>{
+      if(!it.v){
+        const nv=prompt(it.l+" の内容を入力",it.v||"");
+        if(nv!==null){it.v=nv;save();render()}
+        return;
+      }
+      await copy(it.v);toast(it.l+" をコピーしました");
+    };
+    const ed=document.createElement("button");ed.className="rm";ed.style.color="var(--ac)";ed.textContent="編集";
+    ed.onclick=()=>{const nv=prompt(it.l+" の内容を編集",it.v||"");if(nv!==null){it.v=nv;save();render()}};
+    const rm=document.createElement("button");rm.className="rm";rm.textContent="削除";
+    rm.onclick=()=>{if(confirm(it.l+" を削除しますか？")){items.splice(i,1);save();render()}};
+    row.append(b,ed,rm);box.appendChild(row);
+  });
+}
+$("addBtn").onclick=()=>{
+  const l=$("nl").value.trim(),v=$("nv").value;
+  if(!l){toast("項目名を入れてください");return}
+  items.push({l,v});save();render();$("nl").value="";$("nv").value="";toast("追加しました");
+};
+render();
+})();
+</script>
+</body>
+</html>
