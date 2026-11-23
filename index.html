@@ -50,7 +50,8 @@ input{font:inherit;width:100%;padding:10px;border-radius:10px;border:1px solid #
     <div class="small" id="syncInfo">未補正（端末の時計）</div>
     <div class="row"><button style="flex:1" id="syncBtn">時刻を補正する</button></div>
     <div class="row"><button class="gray" style="flex:1" id="pipBtn">🪟 小窓で表示（他のサイトの上に浮かせる）</button></div>
-    <video id="pv" playsinline muted style="position:absolute;width:2px;height:2px;opacity:.01;pointer-events:none"></video>
+    <video id="pv" playsinline muted controls style="display:none;width:100%;margin-top:8px;border-radius:10px;background:#000"></video>
+    <div class="small" id="pipInfo"></div>
   </div>
 
   <div class="card">
@@ -226,17 +227,29 @@ function drawPip(){
     }
   }else{cx.fillStyle="#8e8e93";cx.font="28px sans-serif";cx.fillText("カウントダウン未設定",240,200)}
 }
-$("pipBtn").onclick=async()=>{
-  const v=$("pv");
+$("pipBtn").onclick=()=>{
+  const v=$("pv"),info=$("pipInfo");
+  const hint="下の黒い画面のプレーヤー右下にあるPiPアイコン（四角が重なったマーク）を押してみてください";
+  v.style.display="block";
   try{
+    if(!cv.captureStream)throw new Error("この端末は canvas.captureStream に非対応です");
     if(!v.srcObject){v.srcObject=cv.captureStream(30);v.muted=true;v.playsInline=true}
-    drawPip();await v.play();
+    drawPip();
     if(!pipTimer)pipTimer=setInterval(drawPip,33);
-    if(v.requestPictureInPicture)await v.requestPictureInPicture();
-    else if(v.webkitSetPresentationMode)v.webkitSetPresentationMode("picture-in-picture");
-    else throw new Error("unsupported");
-    toast("小窓を表示しました");
-  }catch(e){toast("小窓を表示できませんでした")}
+    v.play().catch(()=>{});
+    // ユーザー操作の直後に同期的に呼ぶ（待つと許可が切れるため）
+    if(v.webkitSupportsPresentationMode&&v.webkitSupportsPresentationMode("picture-in-picture")){
+      v.webkitSetPresentationMode("picture-in-picture");
+      info.textContent="小窓を表示しました。他のタブやアプリに切り替えてください";
+    }else if(v.requestPictureInPicture){
+      v.requestPictureInPicture().then(()=>{info.textContent="小窓を表示しました"})
+        .catch(e=>{info.textContent="小窓エラー："+e.name+" / "+hint});
+    }else{
+      info.textContent="自動表示できませんでした。"+hint;
+    }
+  }catch(e){
+    info.textContent="エラー："+(e.name||"")+" "+(e.message||"")+" / "+hint;
+  }
 };
 
 /* 入力メモ */
